@@ -1,0 +1,88 @@
+spring:
+  application:
+    name: kafka-streams-poc
+
+  task:
+    scheduling:
+      pool:
+        # Numero di thread dedicati ai task pianificati
+        size: 4
+      thread-name-prefix: scheduling-task-
+
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+
+      # Dice a Kafka di riprovare l'invio in automatico in caso di errore
+      retries: 3
+
+      # Dimensione massima del buffer per singola partizione (es. 64 KB)
+      batch-size: 65536
+
+      properties:
+        # Quanto tempo aspettare prima di inviare il batch se non è ancora pieno (es. 20 millisecondi)
+        # Nota: in Spring Boot 4 / Kafka 4.x l'unità di misura è espressa come stringa di durata (es. 20ms)
+        linger.ms: 20
+
+        # Abilita l'idempotenza per evitare che i retry generino duplicati sul broker
+        enable.idempotence: true
+
+        # Tempo di attesa (backoff) tra un tentativo fallito e il successivo (es. 100ms)
+        retry.backoff.ms: 100
+
+        #Dimensione massima del messaggio accettata dal broker
+        max.request.size: 1000 # bytes
+
+
+
+      # Abilita la compressione per ridurre il peso dei dati
+      compression-type: lz4
+
+      # Numero massimo di richieste in volo (garantisce l'ordinamento se impostato a 1-5 con idempotenza)
+      acks: all
+
+    consumer:
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
+      properties:
+        spring.json.trusted.packages: com.example.kafka.model
+
+    streams:
+      application-id: orders-stream-processing-group
+      properties:
+        processing.guarantee: at_least_once
+        auto.offset.reset: earliest
+        num.stream.threads: 5
+
+    admin:
+      properties:
+        retries: 3
+        request.timeout.ms: 1000
+        default.api.timeout.ms: 5000
+        reconnect.backoff.ms: 1000
+        reconnect.backoff.max.ms: 1000
+
+load-generator:
+  duration: 5s
+  workers: 4
+  error-rate: 0.00001
+
+app:
+  topics:
+    orders: orders-topic
+    notifications: notifications-topic
+    partitions: 5
+  retry-topics:
+    orders: orders-retry
+  dlq-topics:
+    orders: orders-dlq
+
+
+logging:
+  level:
+    org.apache.kafka.clients: ERROR
+    org.apache.kafka.streams: ERROR
+    org.apache.kafka.common: ERROR
