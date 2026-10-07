@@ -134,8 +134,8 @@ public class KafkaTopicInspector {
                         stats.incrementEffectiveRecords();
                     }
 
-                    System.out.printf(
-                            "Partition=%d Offset=%d Key=%s%n",
+                    log.debug(
+                            "Partition={} Offset={} Key={}",
                             record.partition(),
                             record.offset(),
                             record.key()
