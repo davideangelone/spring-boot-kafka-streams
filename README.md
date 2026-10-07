@@ -203,7 +203,7 @@ kafka-topics.sh --list --bootstrap-server localhost:9092
 ```
 
 I log dell'applicazione mostreranno:
-- Generazione di ordini casuali in continuo per `load-generator.duration` (5 secondi) con `load-generator.workers` worker; a fine test viene loggato il throughput.
+- Generazione di ordini casuali in continuo per `load-generator.duration` con `load-generator.workers` worker; a fine test viene loggato il throughput.
 - Elaborazione in streaming con ramificazione.
 - Retry automatico per ordini falliti.
 - Notifiche per ordini elaborati con successo.

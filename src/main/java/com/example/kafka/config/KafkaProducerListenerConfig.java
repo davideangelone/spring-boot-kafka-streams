@@ -64,12 +64,16 @@ public class KafkaProducerListenerConfig {
                 log.error("[WorkerId {}] Send failed on topic {}. Redirecting to {}. orderId={}, productId={}. Error: {}",
                         workerId, topic, dlqTopic, order.orderId(), order.productId(), exception.getMessage());
 
+                // La partizione è null quando il producer la sceglie in base alla chiave (caso di OrderProducer):
+                // l'unboxing diretto in int lancerebbe un NPE prima dell'invio in DLQ
+                int partition = producerRecord.partition() != null ? producerRecord.partition() : -1;
+
                 // Stesso schema (OrderRetry) dei messaggi che arrivano in DLQ dal listener di retry
                 OrderRetry retry = new OrderRetry(
                         UUID.randomUUID().toString(),
                         order,
                         topic,
-                        producerRecord.partition(),
+                        partition,
                         -1,
                         System.currentTimeMillis(),
                         exception.getClass().getName(),
