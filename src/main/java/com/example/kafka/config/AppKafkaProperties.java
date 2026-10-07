@@ -17,6 +17,7 @@ public class AppKafkaProperties {
         private String orders;
         private String notifications;
         private int partitions = 5;
+        private boolean cleanOnStartup = false; // Cancella i topic all'avvio
     }
 
     @Data

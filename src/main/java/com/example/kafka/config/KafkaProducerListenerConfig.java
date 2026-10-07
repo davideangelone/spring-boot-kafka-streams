@@ -2,9 +2,11 @@ package com.example.kafka.config;
 
 import java.nio.charset.StandardCharsets;
 import java.util.Optional;
+import java.util.UUID;
 
+import com.example.kafka.dlq.DlqPublisher;
 import com.example.kafka.model.Order;
-import com.example.kafka.util.TopicUtils;
+import com.example.kafka.model.OrderRetry;
 import jakarta.annotation.PostConstruct;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.kafka.clients.producer.ProducerRecord;
@@ -20,21 +22,28 @@ import org.springframework.kafka.support.ProducerListener;
 public class KafkaProducerListenerConfig {
 
     private final KafkaTemplate<String, Object> kafkaTemplate;
+    private final DlqPublisher dlqPublisher;
+    private final AppKafkaProperties appProperties;
 
-    public KafkaProducerListenerConfig(KafkaTemplate<String, Object> kafkaTemplate) {
+    public KafkaProducerListenerConfig(KafkaTemplate<String, Object> kafkaTemplate,
+                                       DlqPublisher dlqPublisher,
+                                       AppKafkaProperties appProperties) {
         this.kafkaTemplate = kafkaTemplate;
+        this.dlqPublisher = dlqPublisher;
+        this.appProperties = appProperties;
     }
 
     @PostConstruct
     public void registerListener() {
-        // Agganciamo un ascoltatore degli esiti direttamente al template di Spring
+        // Agganciamo un ascoltatore degli esiti direttamente al template di Spring.
+        // NB: il template è condiviso da tutti i producer dell'applicazione (orders, notifications, DLQ),
+        // quindi qui si reagisce solo ai fallimenti sul topic degli ordini.
         kafkaTemplate.setProducerListener(new ProducerListener<>() {
             @Override
             public void onError(@NonNull ProducerRecord<String, Object> producerRecord,
                                 RecordMetadata recordMetadata, @NonNull Exception exception) {
 
-                String originalTopic = producerRecord.topic();
-                Order order = (Order) producerRecord.value();
+                String topic = producerRecord.topic();
 
                 // Read workerId from headers if present
                 Header workerHeader = producerRecord.headers().lastHeader("workerId");
@@ -43,43 +52,32 @@ public class KafkaProducerListenerConfig {
                         .map(value -> new String(value, StandardCharsets.UTF_8))
                         .orElse("unknown");
 
-                // Guard against recursive DLQ sends
-                if (TopicUtils.isDlqTopic(originalTopic)) {
-                    log.error("[WorkerId {}] Final failure: could not forward to DLQ topic {}. Giving up. OrderId {}. Error: {}",
-                            workerId, originalTopic, order.orderId(), exception.getMessage());
+                // Altri topic (notifications, DLQ, ...): il chiamante gestisce già l'errore.
+                // In particolare un fallimento sulla DLQ non deve generare un nuovo invio in DLQ.
+                if (!topic.equals(appProperties.getTopics().getOrders())
+                        || !(producerRecord.value() instanceof Order order)) {
+                    log.error("[WorkerId {}] Send failed on topic {}. Error: {}", workerId, topic, exception.getMessage());
                     return;
                 }
 
-                String dlqTopic = TopicUtils.mapTopicToDlq(originalTopic);
+                String dlqTopic = appProperties.getDlqTopics().getOrders();
+                log.error("[WorkerId {}] Send failed on topic {}. Redirecting to {}. orderId={}, productId={}. Error: {}",
+                        workerId, topic, dlqTopic, order.orderId(), order.productId(), exception.getMessage());
 
-                log.error("[WorkerId {}] Send failed on topic {}. Redirecting to {}. OrderId {}. Error: {}",
-                        workerId, originalTopic, dlqTopic, order.orderId(), exception.getMessage());
+                // Stesso schema (OrderRetry) dei messaggi che arrivano in DLQ dal listener di retry
+                OrderRetry retry = new OrderRetry(
+                        UUID.randomUUID().toString(),
+                        order,
+                        topic,
+                        producerRecord.partition(),
+                        -1,
+                        System.currentTimeMillis(),
+                        exception.getClass().getName(),
+                        exception.getMessage()
+                );
 
-                // DLQ send with proper error handling
-                sendToDlq(dlqTopic, producerRecord, workerId, order.orderId());
+                dlqPublisher.publish(producerRecord.key(), retry, "producer[worker=" + workerId + "]", null);
             }
         });
-    }
-
-    private void sendToDlq(String dlqTopic, ProducerRecord<String, Object> producerRecord, String workerId, String orderId) {
-
-        // Preserve headers when creating the DLQ record
-        ProducerRecord<String, Object> dlqRecord = new ProducerRecord<>(
-                dlqTopic,
-                null, // partition: let broker assign
-                producerRecord.timestamp(),
-                producerRecord.key(),
-                producerRecord.value(),
-                producerRecord.headers() // copy original headers
-        );
-
-        kafkaTemplate.send(dlqRecord)
-                .whenComplete((result, ex) -> {
-                    if (ex != null) {
-                        log.error("[WorkerId {}] Failed to send to DLQ topic {}. OrderId {}. Error: {}", workerId, dlqTopic, orderId, ex.getMessage());
-                    } else {
-                        log.info("[WorkerId {}] Successfully sent to DLQ topic {}. OrderId {}.", workerId, dlqTopic, orderId);
-                    }
-                });
     }
 }

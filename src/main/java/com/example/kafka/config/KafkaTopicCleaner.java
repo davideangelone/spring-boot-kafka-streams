@@ -3,14 +3,20 @@ package com.example.kafka.config;
 import jakarta.annotation.PostConstruct;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.kafka.clients.admin.AdminClient;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.kafka.core.KafkaAdmin;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
 import java.util.Set;
 
+/**
+ * Cancella i topic dell'applicazione all'avvio: utile solo in locale/POC, distruttivo altrove.
+ * Attivo solo con {@code app.topics.clean-on-startup=true}.
+ */
 @Slf4j
 @Component
+@ConditionalOnProperty(prefix = "app.topics", name = "clean-on-startup", havingValue = "true")
 public class KafkaTopicCleaner {
 
     private final KafkaAdmin kafkaAdmin;

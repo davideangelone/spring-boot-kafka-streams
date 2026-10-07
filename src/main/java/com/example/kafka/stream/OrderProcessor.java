@@ -13,9 +13,13 @@ import org.springframework.stereotype.Service;
 public class OrderProcessor {
 
     private final double errorRate;
+    private final double retryErrorRate;
 
-    public OrderProcessor(@Value("${load-generator.error-rate}") double errorRate) {
+    public OrderProcessor(
+            @Value("${load-generator.error-rate}") double errorRate,
+            @Value("${load-generator.retry-error-rate:${load-generator.error-rate}}") double retryErrorRate) {
         this.errorRate = errorRate;
+        this.retryErrorRate = retryErrorRate;
     }
 
     public void process(Order order) {
@@ -30,7 +34,7 @@ public class OrderProcessor {
     public void processRetry(OrderRetry orderRetry) {
         log.debug("[PROCESSOR-RETRY] Processing order={}, product={}", orderRetry.order().orderId(), orderRetry.order().productId());
 
-        if (ThreadLocalRandom.current().nextDouble() < errorRate) {
+        if (ThreadLocalRandom.current().nextDouble() < retryErrorRate) {
             log.error("[PROCESSOR-RETRY] Simulated retry processing error: orderId={}, productId={}", orderRetry.order().orderId(), orderRetry.order().productId());
             throw new RuntimeException("[PROCESSOR-RETRY] Simulated retry processing error");
         }

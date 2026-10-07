@@ -5,7 +5,6 @@ import java.util.concurrent.TimeUnit;
 
 import com.example.kafka.config.AppKafkaProperties;
 import com.example.kafka.model.OrderRetry;
-import com.example.kafka.stream.OrderProcessingResult;
 import com.example.kafka.stream.OrderProcessor;
 import com.example.kafka.util.JsonUtils;
 import lombok.extern.slf4j.Slf4j;
@@ -42,33 +41,30 @@ public class OrderRetryListener {
     )
     public void process(OrderRetry retry) {
 
-        int attempt = OrderRetryAttemptCounter.next(retry.order().orderId());
+        String orderId = retry.order().orderId();
+        int attempt = OrderRetryAttemptCounter.next(orderId);
         String identifier = "[PROCESSOR-LISTENER-RETRY #" + attempt + "]";
 
-        log.info("{} Retry processing: orderId={}", identifier, retry.order().orderId());
+        log.info("{} Retry processing: orderId={}", identifier, orderId);
 
+        // Può lanciare un'eccezione (simulata): in tal caso scatta @Retryable e, a tentativi esauriti, l'error handler
         orderProcessor.processRetry(retry);
 
-        if (retry.order().timestamp() % 2 == 0) {
-            log.error("{} Simulated retry processing error: orderId={}, productId={}", identifier, retry.order().orderId(), retry.order().productId());
-            throw new RuntimeException(identifier + " Simulated retry processing error");
+        // Si pubblica lo stesso tipo (Order) che scrive la topologia Streams, così su notifications-topic
+        // esiste un solo schema. L'invio viene atteso: se fallisce l'eccezione risale al listener
+        // (retry/DLQ) invece di perdersi in un callback asincrono con l'offset già committato.
+        try {
+            kafkaTemplate.send(appProperties.getTopics().getNotifications(), orderId, retry.order())
+                    .orTimeout(5, TimeUnit.SECONDS)
+                    .join();
+        } catch (CompletionException e) {
+            log.error("{} Failed to publish message orderId={} to notifications topic: [{}]",
+                    identifier, orderId, JsonUtils.toJson(retry.order()), e);
+            throw e;
         }
 
-        kafkaTemplate.send(
-                        appProperties.getTopics().getNotifications(),
-                        retry.order().orderId(),
-                        OrderProcessingResult.success(retry.order())
-                )
-                .orTimeout(5, TimeUnit.SECONDS)
-                .exceptionally(ex -> {
-                    String msg = "{} Failed to publish message orderId={} to notifications topic: [{}]";
-                    log.error(msg, identifier, retry.order().orderId(), JsonUtils.toJson(retry.order()), ex);
-                    throw new CompletionException(identifier + " Failed to publish message orderId={" + retry.order().orderId() + "} to notifications topic", ex);
-                })
-                .thenAccept(
-                        result -> log.info("{} Retry processing successful: Published message orderId={} to notifications topic", identifier, retry.order().orderId())
-                );
+        log.info("{} Retry processing successful: Published message orderId={} to notifications topic", identifier, orderId);
 
-        OrderRetryAttemptCounter.reset(retry.order().orderId());
+        OrderRetryAttemptCounter.reset(orderId);
     }
 }

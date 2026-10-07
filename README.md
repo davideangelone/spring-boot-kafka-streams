@@ -40,9 +40,11 @@ Il flusso di elaborazione segue questi passaggi:
 
 ### Strategia di Retry
 
-- **Kafka Streams**: garantisce elaborazione *at-least-once*.
+- **Kafka Streams**: elaborazione *exactly-once* (`exactly_once_v2`) tra i topic Kafka; il listener di retry legge con `isolation.level=read_committed`.
+- **Un solo schema per topic**: `notifications-topic` contiene sempre `Order`, `orders-dlq` sempre `OrderRetry` (con header `dlq-source`, `dlq-exception-class`, `dlq-exception-message`).
 - **Listener di Retry**: utilizza l'annotazione `@Retryable` di Spring con backoff esponenziale.
-- Contatore degli tentativi: `OrderRetryAttemptCounter` traccia in modo thread-safe il numero di retry per ogni ordine.
+- Contatore dei tentativi: `OrderRetryAttemptCounter` serve solo per etichettare i log (i tentativi sono decisi da `@Retryable`).
+- Pubblicazione in DLQ centralizzata in `DlqPublisher`: il payload viene compattato (campi troncati) perché un messaggio scartato per dimensione non venga rifiutato anche dalla DLQ.
 - Error Handler personalizzato: `OrderRetryKafkaListenerErrorHandler` gestisce gli errori del listener Kafka.
 
 ### Configurabilità
@@ -98,12 +100,14 @@ src/main/java/com/example/kafka/
 │   ├── OrderProcessor.java              # Logica di elaborazione ordine
 │   ├── OrderProcessingProcessor.java    # Processor Kafka Streams custom
 │   └── OrderStreamTopology.java         # Definizione della topologia Streams
+├── dlq/
+│   └── DlqPublisher.java                # Pubblicazione unificata sulla DLQ
 ├── listener/
 │   ├── OrderRetryListener.java          # Listener per il topic di retry
 │   ├── OrderRetryAttemptCounter.java    # Contatore tentativi per ordine
 │   └── OrderRetryKafkaListenerErrorHandler.java # Error handler retry
 └── util/
-    └── TopicUtils.java                   # Utility per topic names
+    └── JsonUtils.java                    # Utility JSON per i log
 ```
 
 ---
@@ -126,7 +130,7 @@ docker compose up -d
 mvn spring-boot:run
 ```
 
-Una volta avviato docker compose è disponibile anche la UI di management di Kafla all'url ```http://localhost:18080```
+Una volta avviato docker compose è disponibile anche la UI di management di Kafka all'url ```http://localhost:18080```
 
 ### Variabili d'Ambiente
 
@@ -141,6 +145,7 @@ export KAFKA_BOOTSTRAP_SERVERS=kafka1:9092,kafka2:9092
 # Tasso di errore simulato (0.0 = nessun errore, 1.0 = sempre errore)
 load-generator:
   error-rate: 0.00001
+  retry-error-rate: 0.5   # errori nel listener di retry (percorso retry -> DLQ)
 
 # Topic
 app:
@@ -157,7 +162,7 @@ app:
   streams:
     application-id: orders-stream-processing-group
     properties:
-      processing.guarantee: at_least_once
+      processing.guarantee: exactly_once_v2
       auto.offset.reset: earliest
       num.stream.threads: 5
 ```
@@ -198,7 +203,7 @@ kafka-topics.sh --list --bootstrap-server localhost:9092
 ```
 
 I log dell'applicazione mostreranno:
-- Generazione di ordini casuali ogni 5 secondi.
+- Generazione di ordini casuali in continuo per `load-generator.duration` (5 secondi) con `load-generator.workers` worker; a fine test viene loggato il throughput.
 - Elaborazione in streaming con ramificazione.
 - Retry automatico per ordini falliti.
 - Notifiche per ordini elaborati con successo.

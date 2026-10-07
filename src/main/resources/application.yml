@@ -33,8 +33,9 @@ spring:
         # Tempo di attesa (backoff) tra un tentativo fallito e il successivo (es. 100ms)
         retry.backoff.ms: 100
 
-        #Dimensione massima del messaggio accettata dal broker
-        max.request.size: 1000 # bytes
+        # Dimensione massima di una richiesta del producer (byte). Deve restare sotto i 10000 byte del payload
+        # "gigante" usato per simulare l'errore, ma con margine per i messaggi (compattati) inviati in DLQ
+        max.request.size: 4096
 
 
 
@@ -49,11 +50,16 @@ spring:
       value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
       properties:
         spring.json.trusted.packages: com.example.kafka.model
+        # Con exactly_once_v2 la topologia scrive in transazione: il listener deve leggere solo
+        # messaggi committati, altrimenti vedrebbe anche quelli di transazioni abortite.
+        isolation.level: read_committed
 
     streams:
       application-id: orders-stream-processing-group
       properties:
-        processing.guarantee: at_least_once
+        processing.guarantee: exactly_once_v2
+        # Un record non deserializzabile viene saltato (e loggato) invece di far morire lo stream thread
+        default.deserialization.exception.handler: org.apache.kafka.streams.errors.LogAndContinueExceptionHandler
         auto.offset.reset: earliest
         num.stream.threads: 5
 
@@ -66,15 +72,20 @@ spring:
         reconnect.backoff.max.ms: 1000
 
 load-generator:
-  duration: 5s
+  duration: 1s
   workers: 4
   error-rate: 0.00001
+  # Probabilità di fallimento di ogni tentativo nel listener di retry (se omessa vale error-rate).
+  # Con valori alti si vede il percorso retry -> DLQ.
+  retry-error-rate: 0.5
 
 app:
   topics:
     orders: orders-topic
     notifications: notifications-topic
     partitions: 5
+    # Cancella e ricrea i topic a ogni avvio
+    clean-on-startup: true
   retry-topics:
     orders: orders-retry
   dlq-topics:

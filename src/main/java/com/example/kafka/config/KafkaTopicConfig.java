@@ -1,7 +1,5 @@
 package com.example.kafka.config;
 
-import java.util.Optional;
-
 import org.apache.kafka.clients.admin.NewTopic;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -29,12 +27,12 @@ public class KafkaTopicConfig {
     // Retry topics
     @Bean
     public NewTopic ordersRetryTopic() {
-        return new NewTopic(appProperties.getRetryTopics().getOrders(), Optional.empty(), Optional.of((short) 1));
+        return new NewTopic(appProperties.getRetryTopics().getOrders(), appProperties.getTopics().getPartitions(), (short) 1);
     }
 
     // DLQ topics
     @Bean
     public NewTopic ordersDlqTopic() {
-        return new NewTopic(appProperties.getDlqTopics().getOrders(), Optional.empty(), Optional.of((short) 1));
+        return new NewTopic(appProperties.getDlqTopics().getOrders(), appProperties.getTopics().getPartitions(), (short) 1);
     }
 }
