@@ -16,6 +16,10 @@ public final class OrderRetryAttemptCounter {
                 .incrementAndGet();
     }
 
+    public static int get(String orderId) {
+        return COUNTS.getOrDefault(orderId, new AtomicInteger(0)).get();
+    }
+
     public static void reset(String orderId) {
         COUNTS.remove(orderId);
     }

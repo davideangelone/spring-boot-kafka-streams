@@ -44,7 +44,10 @@ public class OrderRetryKafkaListenerErrorHandler implements KafkaListenerErrorHa
         }
 
         log.error(
-                "[LISTENER-ERROR-HANDLER] Order retry processing failed: topic={}, partition={}, offset={}",
+                "[LISTENER-ERROR-HANDLER] Order retry processing failed after {} attempts. Sending to DLQ: orderId={}, productId={}, topic={}, partition={}, offset={}",
+                OrderRetryAttemptCounter.get(record.order().orderId()),
+                record.order().orderId(),
+                record.order().productId(),
                 record.originalTopic(),
                 record.originalPartition(),
                 record.originalOffset(),
