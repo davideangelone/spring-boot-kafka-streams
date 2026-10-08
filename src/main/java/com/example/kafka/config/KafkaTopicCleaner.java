@@ -41,7 +41,7 @@ public class KafkaTopicCleaner {
 
         try (AdminClient admin = AdminClient.create(kafkaAdmin.getConfigurationProperties())) {
 
-            Set<String> existingTopics =admin.listTopics().names().get();
+            Set<String> existingTopics = admin.listTopics().names().get();
 
             List<String> topicsToDelete = topics.stream()
                     .filter(existingTopics::contains)

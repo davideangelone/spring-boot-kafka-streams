@@ -1,19 +1,17 @@
 package com.example.kafka.stream;
 
-import java.util.Map;
-
 import com.example.kafka.config.AppKafkaProperties;
 import com.example.kafka.model.Order;
-import com.example.kafka.model.OrderRetry;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.kafka.common.serialization.Serde;
 import org.apache.kafka.common.serialization.Serdes;
 import org.apache.kafka.streams.StreamsBuilder;
-import org.apache.kafka.streams.kstream.Branched;
 import org.apache.kafka.streams.kstream.Consumed;
 import org.apache.kafka.streams.kstream.KStream;
-import org.apache.kafka.streams.kstream.Named;
 import org.apache.kafka.streams.kstream.Produced;
+import org.apache.kafka.streams.state.KeyValueStore;
+import org.apache.kafka.streams.state.StoreBuilder;
+import org.apache.kafka.streams.state.Stores;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
@@ -21,72 +19,63 @@ import org.springframework.context.annotation.Configuration;
 @Slf4j
 public class OrderStreamTopology {
 
+    private final AppKafkaProperties properties;
     private final OrderProcessor orderProcessor;
 
-    public OrderStreamTopology(OrderProcessor orderProcessor) {
+    public OrderStreamTopology(AppKafkaProperties properties, OrderProcessor orderProcessor) {
+        this.properties = properties;
         this.orderProcessor = orderProcessor;
     }
 
     @Bean
-    public KStream<String, OrderProcessingResult> orderStream(
-            AppKafkaProperties appProperties,
-            StreamsBuilder builder,
-            Serde<Order> orderSerde,
-            Serde<OrderRetry> orderRetrySerde) {
+    public KStream<String, Order> orderStream(StreamsBuilder streamsBuilder,
+                                              Serdes.StringSerde stringSerde,
+                                              Serde<Order> orderSerde) {
 
-        KStream<String, Order> orders =
-                builder.stream(
-                        appProperties.getTopics().getOrders(),
-                        Consumed.with(
-                                Serdes.String(),
-                                orderSerde
-                        )
-                );
+        // 1. Definiamo lo State Store per i contatori dei tentativi (RocksDB + Changelog)
+        StoreBuilder<KeyValueStore<String, Integer>> retryCountStoreBuilder = Stores.keyValueStoreBuilder(
+                Stores.persistentKeyValueStore("order-retry-counts"),
+                Serdes.String(),
+                Serdes.Integer()
+        );
+        streamsBuilder.addStateStore(retryCountStoreBuilder);
 
-        KStream<String, OrderProcessingResult> results =
-                orders.process(
-                        () -> new OrderProcessingProcessor(orderProcessor),
-                        Named.as("order-processing")
-                );
+        // 2. Leggiamo ENTRAMBI i topic di input
+        KStream<String, Order> mainStream = streamsBuilder.stream(
+                properties.getTopics().getOrders(),
+                Consumed.with(Serdes.String(), orderSerde)
+        );
 
-        Map<String, KStream<String, OrderProcessingResult>> branches =
-                results.split(Named.as("processing-"))
-                        .branch(
-                                (key, result) -> result.isSuccess(),
-                                Branched.as("success")
-                        )
-                        .branch(
-                                (key, result) -> !result.isSuccess(),
-                                Branched.as("failure")
-                        )
-                        .noDefaultBranch();
+        KStream<String, Order> retryStream = streamsBuilder.stream(
+                properties.getRetryTopics().getOrders(),
+                Consumed.with(Serdes.String(), orderSerde)
+        );
 
-        KStream<String, OrderProcessingResult> successfulOrders = branches.get("processing-success");
-        KStream<String, OrderProcessingResult> failedOrders = branches.get("processing-failure");
+        // 3. Uniamo i flussi ed eseguiamo il processamento custom.
+        // NOTA: Il processor ora restituisce un OrderRoutingResult (contenente l'Order e il target)
+        KStream<String, OrderRoutingResult> processedStream = mainStream.merge(retryStream)
+                .process(() -> new EnterpriseOrderProcessor(orderProcessor), "order-retry-counts");
 
-        // OK
-        successfulOrders
-                .mapValues(OrderProcessingResult::order)
-                .to(
-                        appProperties.getTopics().getNotifications(),
-                        Produced.with(
-                                Serdes.String(),
-                                orderSerde
-                        )
-                );
+        // 4. Eseguiamo il routing dell'output usando i filtri nativi della DSL (molto più pulito di addSink)
 
-        // KO -> retry
-        failedOrders
-                .mapValues(OrderProcessingResult::retry)
-                .to(
-                        appProperties.getRetryTopics().getOrders(),
-                        Produced.with(
-                                Serdes.String(),
-                                orderRetrySerde
-                        )
-                );
+        // Flusso Successi -> Notifications
+        processedStream
+                .filter((k, v) -> v.status() == OrderRoutingResult.RoutingStatus.SUCCESS)
+                .mapValues(OrderRoutingResult::order)
+                .to(properties.getTopics().getNotifications(), Produced.with(stringSerde, orderSerde));
 
-        return results;
+        // Flusso Retry -> Topic di Retry
+        processedStream
+                .filter((k, v) -> v.status() == OrderRoutingResult.RoutingStatus.RETRY)
+                .mapValues(OrderRoutingResult::order)
+                .to(properties.getRetryTopics().getOrders(), Produced.with(stringSerde, orderSerde));
+
+        // Flusso Errori Infiniti -> DLQ
+        processedStream
+                .filter((k, v) -> v.status() == OrderRoutingResult.RoutingStatus.DLQ)
+                .mapValues(OrderRoutingResult::order)
+                .to(properties.getDlqTopics().getOrders(), Produced.with(stringSerde, orderSerde));
+
+        return mainStream;
     }
-
 }

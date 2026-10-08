@@ -75,9 +75,6 @@ load-generator:
   duration: 1s
   workers: 4
   error-rate: 0.00001
-  # Probabilità di fallimento di ogni tentativo nel listener di retry (se omessa vale error-rate).
-  # Con valori alti si vede il percorso retry -> DLQ.
-  retry-error-rate: 0.5
 
 app:
   topics:
