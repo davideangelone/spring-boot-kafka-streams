@@ -181,6 +181,7 @@ app:
     orders: orders-retry
   dlq-topics:
     orders: orders-dlq
+  state-store: order-retry-counts
 
 # Kafka Streams
 spring:
