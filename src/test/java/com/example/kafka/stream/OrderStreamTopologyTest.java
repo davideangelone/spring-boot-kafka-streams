@@ -45,8 +45,16 @@ class OrderStreamTopologyTest {
     private TestOutputTopic<String, Order> retries;
     private TestOutputTopic<String, Order> dlq;
 
-    private void startTopology(double errorRate) {
-        startTopology(new OrderProcessor(errorRate));
+    private void startTopologyFails() {
+        startTopology(1.0, 1, 1);
+    }
+
+    private void startTopologySucceeds() {
+        startTopology(0.0, 1, -1);
+    }
+
+    private void startTopology(double errorRate, int errorTimestampModulo, int errorTimestampThreshold) {
+        startTopology(new OrderProcessor(errorRate, errorTimestampModulo, errorTimestampThreshold));
     }
 
     private void startTopology(OrderProcessor orderProcessor) {
@@ -91,7 +99,7 @@ class OrderStreamTopologyTest {
 
     @Test
     void successfulOrderGoesToNotifications() {
-        startTopology(0.0);
+        startTopologySucceeds();
         Order order = new Order("o-1", "CUST-1", "PROD-1", 2, 500L);
 
         input.pipeInput("o-1", order);
@@ -108,7 +116,7 @@ class OrderStreamTopologyTest {
 
     @Test
     void failedOrderGoesToRetryWithFailureMetadata() {
-        startTopology(1.0); // nextDouble() < 1.0: fallisce sempre
+        startTopologyFails();
         Order order = new Order("o-2", "CUST-2", "PROD-2", 1, 2L);
 
         input.pipeInput("PROD-2", order);
@@ -124,7 +132,7 @@ class OrderStreamTopologyTest {
 
     @Test
     void orderFailingEveryTimeIsRetriedThreeTimesThenSentToDlqWithDiagnosticHeaders() {
-        startTopology(1.0);
+        startTopologyFails();
         Order order = new Order("o-2", "CUST-2", "PROD-2", 1, 2L);
         Headers headers = new RecordHeaders().add(new RecordHeader("workerId", "7".getBytes(StandardCharsets.UTF_8)));
 
@@ -163,7 +171,7 @@ class OrderStreamTopologyTest {
 
     @Test
     void recordWithNullValueIsIgnored() {
-        startTopology(0.0);
+        startTopology(0.0, 1, -1);
 
         input.pipeInput("k-0", null);
 
@@ -174,7 +182,7 @@ class OrderStreamTopologyTest {
 
     @Test
     void orderWithoutOrderIdGoesStraightToDlq() {
-        startTopology(0.0);
+        startTopology(0.0, 1, -1);
         Order order = new Order(null, "CUST-4", "PROD-4", 1, 500L);
 
         input.pipeInput("k-4", order);

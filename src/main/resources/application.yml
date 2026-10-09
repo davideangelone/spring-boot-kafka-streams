@@ -75,6 +75,8 @@ load-generator:
   duration: 1s
   workers: 4
   error-rate: 0.00001
+  error-timestamp-modulo: 1000
+  error-timestamp-threshold: 2
 
 app:
   topics:

@@ -1,4 +1,4 @@
-# Kafka Streaming — Elaborazione Ordini POC
+# Kafka Streaming — Elaborazione Ordini POC (versione 2)
 
 > **Proof of Concept (POC)** — Questo progetto è una dimostrazione concettuale di un sistema di elaborazione di ordini basato su Kafka Streams e Spring Boot 4. Non è destinato a utilizzo in produzione.
 
@@ -54,12 +54,12 @@ Il flusso di elaborazione segue questi passaggi:
 - **`DlqService`**: unico punto in cui si costruisce un record per la DLQ (chiave = `orderId`, valore = `Order` compattato, header diagnostici). Lo usano sia la topologia sia `DlqPublisher`, quindi la DLQ ha un solo schema. Ogni campo è limitato in dimensione, altrimenti un messaggio scartato perché troppo grande verrebbe rifiutato anche dalla DLQ: `customerId` e `productId` sono troncati a 64 caratteri (`StringUtils.abbreviate`) e `dlq-exception-message` a 200. Header: `workerId` (`unknown` se assente), `dlq-exception-class`, `dlq-exception-message`. Il timestamp del record Kafka non è mai negativo (il valore originale resta nel payload).
 - **`DlqPublisher`**: pubblica sulla DLQ tramite `KafkaTemplate` i record costruiti da `DlqService`. Lo usa `KafkaProducerListenerConfig` per i fallimenti di invio sul topic degli ordini; la topologia scrive sulla DLQ direttamente con `.to(...)`.
 - **`KafkaProducerListenerConfig`**: ascolta gli errori del producer su `KafkaTemplate` e redirige gli ordini falliti alla DLQ. Filtra gli errori non relativi al topic `orders-topic` per evitare invii ricorsivi.
-- **Simulazione errori producer**: `OrderProducer` genera occasionalmente un payload di 10000 caratteri per simulare errori di dimensione del messaggio, configurabili tramite `load-generator.error-rate`.
+- **Simulazione errori producer**: `OrderProducer` genera occasionalmente un payload di 10000 caratteri per simulare errori di dimensione del messaggio, configurabili tramite `load-generator.error-rate`. Simula inoltre errori non recuperabili tramite i parametro `load-generator.error-timestamp-modulo` e `load-generator.error-timestamp-threshold`
 
 ### Configurazione
 
 - **Bootstrap servers**: configurabile tramite variabile d'ambiente `KAFKA_BOOTSTRAP_SERVERS`.
-- **Tasso di errore simulato**: configurabile in `application.yml` (`load-generator.error-rate`).
+- **Tasso di errore simulato**: configurabile in `application.yml` (`load-generator.error-rate`, `error-timestamp-modulo`, `error-timestamp-threshold`).
 - **Numero di partizioni**: configurabile (`app.topics.partitions`).
 - **Pulisce i topic all'avvio**: `app.topics.clean-on-startup` (default `true`) cancella i topic esistenti all'avvio tramite `KafkaTopicCleaner`.
 - **Parametri producer/consumer**: serializzatori, compressione, idempotenza, acks, batch-size, linger.ms.
@@ -169,6 +169,8 @@ load-generator:
   duration: 1s
   workers: 4
   error-rate: 0.00001
+  error-timestamp-modulo: 1000
+  error-timestamp-threshold: 2
 
 # Topic
 app:

@@ -12,17 +12,30 @@ import org.springframework.stereotype.Service;
 public class OrderProcessor {
 
     private final double errorRate;
+    private final int errorTimestampModulo;
+    private final int errorTimestampThreshold;
 
-    public OrderProcessor(@Value("${load-generator.error-rate}") double errorRate) {
+    public OrderProcessor(@Value("${load-generator.error-rate}") double errorRate,
+                          @Value("${load-generator.error-timestamp-modulo}") int errorTimestampModulo,
+                          @Value("${load-generator.error-timestamp-threshold}") int errorTimestampThreshold) {
         this.errorRate = errorRate;
+        this.errorTimestampModulo = errorTimestampModulo;
+        this.errorTimestampThreshold = errorTimestampThreshold;
     }
 
     public void process(Order order) {
         log.debug("[PROCESSOR] Processing order={}, product={}", order.orderId(), order.productId());
 
-        if ( (order.timestamp() % 1000 < 2) || (ThreadLocalRandom.current().nextDouble() < errorRate) ) {
-            log.debug("[PROCESSOR] Simulated processing error: orderId={}, productId={}", order.orderId(), order.productId());
-            throw new RuntimeException("[PROCESSOR] Simulated processing error");
+        // Simula errori di processamento basato su timestamp (falliscono tutti i tentativi)
+        if (order.timestamp() % errorTimestampModulo < errorTimestampThreshold) {
+            log.debug("[PROCESSOR] Simulated processing error (timestamp): orderId={}, productId={}", order.orderId(), order.productId());
+            throw new RuntimeException("[PROCESSOR] Simulated processing error (timestamp)");
+        }
+
+        // Simula errori di processamento randomici
+        if (ThreadLocalRandom.current().nextDouble() < errorRate) {
+            log.debug("[PROCESSOR] Simulated processing error (random): orderId={}, productId={}", order.orderId(), order.productId());
+            throw new RuntimeException("[PROCESSOR] Simulated processing error (random)");
         }
     }
 }
