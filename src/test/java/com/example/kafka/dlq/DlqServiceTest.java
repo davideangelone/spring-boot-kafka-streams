@@ -1,5 +1,9 @@
 package com.example.kafka.dlq;
 
+import static com.example.kafka.constants.Headers.HEADER_EXCEPTION_CLASS;
+import static com.example.kafka.constants.Headers.HEADER_EXCEPTION_MESSAGE;
+import static com.example.kafka.constants.Headers.UNKNOWN_WORKER_ID;
+import static com.example.kafka.constants.Headers.WORKER_ID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -32,9 +36,9 @@ class DlqServiceTest {
         assertThat(record.value().customerId()).hasSize(DlqService.MAX_FIELD_LENGTH);
         assertThat(record.value().productId()).hasSize(DlqService.MAX_FIELD_LENGTH);
         assertThat(record.value().quantity()).isEqualTo(3);
-        assertThat(header(record, DlqService.WORKER_ID)).isEqualTo("3");
-        assertThat(header(record, DlqService.HEADER_EXCEPTION_CLASS)).isEqualTo(RuntimeException.class.getName());
-        assertThat(header(record, DlqService.HEADER_EXCEPTION_MESSAGE)).isEqualTo("boom");
+        assertThat(header(record, WORKER_ID)).isEqualTo("3");
+        assertThat(header(record, HEADER_EXCEPTION_CLASS)).isEqualTo(RuntimeException.class.getName());
+        assertThat(header(record, HEADER_EXCEPTION_MESSAGE)).isEqualTo("boom");
     }
 
     @Test
@@ -43,7 +47,7 @@ class DlqServiceTest {
 
         Record<String, Order> record = service.createDlqRecord(order, "1", new RuntimeException("x".repeat(5_000)));
 
-        assertThat(header(record, DlqService.HEADER_EXCEPTION_MESSAGE)).hasSize(DlqService.MAX_MESSAGE_LENGTH);
+        assertThat(header(record, HEADER_EXCEPTION_MESSAGE)).hasSize(DlqService.MAX_MESSAGE_LENGTH);
     }
 
     @Test
@@ -52,8 +56,8 @@ class DlqServiceTest {
 
         Record<String, Order> record = service.createDlqRecord(order, "1", new NullPointerException());
 
-        assertThat(header(record, DlqService.HEADER_EXCEPTION_CLASS)).isEqualTo(NullPointerException.class.getName());
-        assertThat(header(record, DlqService.HEADER_EXCEPTION_MESSAGE)).isEmpty();
+        assertThat(header(record, HEADER_EXCEPTION_CLASS)).isEqualTo(NullPointerException.class.getName());
+        assertThat(header(record, HEADER_EXCEPTION_MESSAGE)).isEmpty();
     }
 
     @Test
@@ -62,9 +66,9 @@ class DlqServiceTest {
 
         Record<String, Order> record = service.createDlqRecord(order, "1", null);
 
-        assertThat(record.headers().lastHeader(DlqService.HEADER_EXCEPTION_CLASS)).isNull();
-        assertThat(record.headers().lastHeader(DlqService.HEADER_EXCEPTION_MESSAGE)).isNull();
-        assertThat(header(record, DlqService.WORKER_ID)).isEqualTo("1");
+        assertThat(record.headers().lastHeader(HEADER_EXCEPTION_CLASS)).isNull();
+        assertThat(record.headers().lastHeader(HEADER_EXCEPTION_MESSAGE)).isNull();
+        assertThat(header(record, WORKER_ID)).isEqualTo("1");
     }
 
     @Test
@@ -73,7 +77,7 @@ class DlqServiceTest {
 
         Record<String, Order> record = service.createDlqRecord(order, null, null);
 
-        assertThat(header(record, DlqService.WORKER_ID)).isEqualTo(DlqService.UNKNOWN_WORKER_ID);
+        assertThat(header(record, WORKER_ID)).isEqualTo(UNKNOWN_WORKER_ID);
     }
 
     @Test
@@ -95,9 +99,9 @@ class DlqServiceTest {
     @Test
     void workerIdIsReadFromHeadersAndDefaultsToUnknown() {
         RecordHeaders withWorker = new RecordHeaders();
-        withWorker.add(new RecordHeader(DlqService.WORKER_ID, "5".getBytes(StandardCharsets.UTF_8)));
+        withWorker.add(new RecordHeader(WORKER_ID, "5".getBytes(StandardCharsets.UTF_8)));
 
         assertThat(service.getWorkerId(withWorker)).isEqualTo("5");
-        assertThat(service.getWorkerId(new RecordHeaders())).isEqualTo(DlqService.UNKNOWN_WORKER_ID);
+        assertThat(service.getWorkerId(new RecordHeaders())).isEqualTo(UNKNOWN_WORKER_ID);
     }
 }

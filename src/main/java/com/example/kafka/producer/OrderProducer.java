@@ -13,6 +13,8 @@ import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.kafka.support.SendResult;
 import org.springframework.stereotype.Component;
 
+import static com.example.kafka.constants.Headers.WORKER_ID;
+
 @Slf4j
 @Component
 public class OrderProducer {
@@ -44,7 +46,7 @@ public class OrderProducer {
                 order.orderId(),
                 order
         );
-        record.headers().add("workerId", String.valueOf(workerId).getBytes(StandardCharsets.UTF_8));
+        record.headers().add(WORKER_ID, String.valueOf(workerId).getBytes(StandardCharsets.UTF_8));
 
         return kafkaTemplate.send(record);
     }

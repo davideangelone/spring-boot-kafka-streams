@@ -12,6 +12,11 @@ import org.apache.kafka.common.header.internals.RecordHeader;
 import org.apache.kafka.streams.processor.api.Record;
 import org.springframework.stereotype.Service;
 
+import static com.example.kafka.constants.Headers.HEADER_EXCEPTION_CLASS;
+import static com.example.kafka.constants.Headers.HEADER_EXCEPTION_MESSAGE;
+import static com.example.kafka.constants.Headers.UNKNOWN_WORKER_ID;
+import static com.example.kafka.constants.Headers.WORKER_ID;
+
 /**
  * Costruisce i record da scrivere in DLQ. Lo usano sia la topologia Streams sia {@link DlqPublisher}, così i
  * messaggi in DLQ hanno sempre lo stesso schema: chiave = orderId, valore = {@link Order} compattato e header diagnostici.
@@ -21,11 +26,6 @@ import org.springframework.stereotype.Service;
  */
 @Service
 public class DlqService {
-
-    public static final String WORKER_ID = "workerId";
-    public static final String UNKNOWN_WORKER_ID = "unknown";
-    public static final String HEADER_EXCEPTION_CLASS = "dlq-exception-class";
-    public static final String HEADER_EXCEPTION_MESSAGE = "dlq-exception-message";
 
     static final int MAX_FIELD_LENGTH = 64;
     static final int MAX_MESSAGE_LENGTH = 200;

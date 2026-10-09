@@ -1,5 +1,8 @@
 package com.example.kafka.stream;
 
+import static com.example.kafka.constants.Headers.HEADER_EXCEPTION_CLASS;
+import static com.example.kafka.constants.Headers.HEADER_EXCEPTION_MESSAGE;
+import static com.example.kafka.constants.Headers.WORKER_ID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doThrow;
@@ -146,9 +149,9 @@ class OrderStreamTopologyTest {
         TestRecord<String, Order> record = dead.getFirst();
         assertThat(record.key()).isEqualTo("o-2");
         assertThat(record.value()).isEqualTo(order);
-        assertThat(header(record, DlqService.HEADER_EXCEPTION_CLASS)).isEqualTo(RuntimeException.class.getName());
-        assertThat(header(record, DlqService.HEADER_EXCEPTION_MESSAGE)).contains("Simulated processing error");
-        assertThat(header(record, DlqService.WORKER_ID)).isEqualTo("7");
+        assertThat(header(record, HEADER_EXCEPTION_CLASS)).isEqualTo(RuntimeException.class.getName());
+        assertThat(header(record, HEADER_EXCEPTION_MESSAGE)).contains("Simulated processing error");
+        assertThat(header(record, WORKER_ID)).isEqualTo("7");
 
         // Il contatore dei tentativi non deve restare nello state store dopo l'invio in DLQ
         assertThat(retryStore().get("o-2")).isNull();
@@ -192,7 +195,7 @@ class OrderStreamTopologyTest {
         List<TestRecord<String, Order>> dead = dlq.readRecordsToList();
         assertThat(dead).hasSize(1);
         assertThat(dead.getFirst().value()).isEqualTo(order);
-        assertThat(header(dead.getFirst(), DlqService.HEADER_EXCEPTION_CLASS)).isEqualTo(IllegalArgumentException.class.getName());
-        assertThat(header(dead.getFirst(), DlqService.HEADER_EXCEPTION_MESSAGE)).isEqualTo("Missing orderId");
+        assertThat(header(dead.getFirst(), HEADER_EXCEPTION_CLASS)).isEqualTo(IllegalArgumentException.class.getName());
+        assertThat(header(dead.getFirst(), HEADER_EXCEPTION_MESSAGE)).isEqualTo("Missing orderId");
     }
 }

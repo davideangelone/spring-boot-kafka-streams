@@ -1,5 +1,7 @@
 package com.example.kafka.dlq;
 
+import static com.example.kafka.constants.Headers.HEADER_EXCEPTION_CLASS;
+import static com.example.kafka.constants.Headers.WORKER_ID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
@@ -56,8 +58,8 @@ class DlqPublisherTest {
             assertThat(payload.orderId()).isEqualTo("o-1");
             assertThat(payload.productId()).hasSize(DlqService.MAX_FIELD_LENGTH);
         });
-        assertThat(new String(sent.headers().lastHeader(DlqService.WORKER_ID).value(), StandardCharsets.UTF_8)).isEqualTo("3");
-        assertThat(sent.headers().lastHeader(DlqService.HEADER_EXCEPTION_CLASS)).isNotNull();
+        assertThat(new String(sent.headers().lastHeader(WORKER_ID).value(), StandardCharsets.UTF_8)).isEqualTo("3");
+        assertThat(sent.headers().lastHeader(HEADER_EXCEPTION_CLASS)).isNotNull();
 
         // Header e chiave restano ampiamente sotto max.request.size (4096): la DLQ non deve scartare a sua volta
         int headersSize = 0;

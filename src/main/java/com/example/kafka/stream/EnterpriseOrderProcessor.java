@@ -81,8 +81,7 @@ public class EnterpriseOrderProcessor extends ContextualProcessor<String, Order,
             retryStore.put(orderId, attempts);
             context().forward(record.withValue(new OrderRoutingResult(order, OrderRoutingResult.RoutingStatus.RETRY)));
         } else {
-            log.error("[PROCESSOR] Order with orderId {} failed definitively after {} attempts. Forwarding to DLQ.",
-                    orderId, attempts);
+            log.error("[PROCESSOR] Order with orderId {} failed definitively after {} attempts. Forwarding to DLQ.", orderId, attempts);
             retryStore.delete(orderId); // Evita memory leak su RocksDB
             forwardToDlq(record, order, e);
         }

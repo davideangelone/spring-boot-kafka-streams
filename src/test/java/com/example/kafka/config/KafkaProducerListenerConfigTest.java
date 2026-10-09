@@ -1,5 +1,6 @@
 package com.example.kafka.config;
 
+import static com.example.kafka.constants.Headers.UNKNOWN_WORKER_ID;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.same;
@@ -66,7 +67,7 @@ class KafkaProducerListenerConfigTest {
 
         listener.onError(record, null, failure);
 
-        verify(dlqPublisher).publish(eq(order()), eq(DlqService.UNKNOWN_WORKER_ID), same(failure));
+        verify(dlqPublisher).publish(eq(order()), eq(UNKNOWN_WORKER_ID), same(failure));
     }
 
     @Test
