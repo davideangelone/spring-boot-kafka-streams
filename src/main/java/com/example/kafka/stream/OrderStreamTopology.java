@@ -37,7 +37,7 @@ public class OrderStreamTopology {
 
         // 1. Definiamo lo State Store per i contatori dei tentativi (RocksDB + Changelog)
         StoreBuilder<KeyValueStore<String, Integer>> retryCountStoreBuilder = Stores.keyValueStoreBuilder(
-                Stores.persistentKeyValueStore("order-retry-counts"),
+                Stores.persistentKeyValueStore(properties.getStateStore()),
                 Serdes.String(),
                 Serdes.Integer()
         );
@@ -57,7 +57,7 @@ public class OrderStreamTopology {
         // 3. Uniamo i flussi ed eseguiamo il processamento custom.
         // NOTA: Il processor ora restituisce un OrderRoutingResult (contenente l'Order e il target)
         KStream<String, OrderRoutingResult> processedStream = mainStream.merge(retryStream)
-                .process(() -> new EnterpriseOrderProcessor(orderProcessor, dlqService), "order-retry-counts");
+                .process(() -> new EnterpriseOrderProcessor(orderProcessor, dlqService, properties.getStateStore()), properties.getStateStore());
 
         // 4. Eseguiamo il routing dell'output usando i filtri nativi della DSL (molto più pulito di addSink)
 

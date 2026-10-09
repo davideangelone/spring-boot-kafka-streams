@@ -11,6 +11,7 @@ public class AppKafkaProperties {
     private Topics topics = new Topics();
     private RetryTopics retryTopics = new RetryTopics();
     private DlqTopics dlqTopics = new DlqTopics();
+    private String stateStore;
 
     @Data
     public static class Topics {

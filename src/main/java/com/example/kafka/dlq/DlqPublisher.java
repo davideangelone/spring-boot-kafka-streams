@@ -41,7 +41,7 @@ public class DlqPublisher {
         String orderId = record.key();
         String productId = Optional.ofNullable(record.value()).map(Order::productId).orElse(null);
 
-        ProducerRecord<String, Object> producerRecord = new ProducerRecord<>(dlqTopic, null, record.value().timestamp(), orderId, record.value(), record.headers());
+        ProducerRecord<String, Object> producerRecord = new ProducerRecord<>(dlqTopic, null, record.timestamp(), orderId, record.value(), record.headers());
 
         return kafkaTemplate.send(producerRecord)
                 .whenComplete((result, ex) -> {

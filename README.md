@@ -17,8 +17,8 @@ Il flusso di elaborazione segue questi passaggi:
    - Gli ordini **falliti (retry)** vengono inviati al topic `orders-retry`.
    - Gli ordini **falliti definitivamente** vengono inviati al topic `orders-dlq`.
 4. **Retry con contatore persistente**: il numero di tentativi è tracciato in uno **state store RocksDB** (`order-retry-counts`) con changelog, gestito internamente alla topologia. Dopo un massimo di 3 tentativi, l'ordine è indirizzato alla DLQ.
-5. **Dead Letter Queue**: gli ordini che superano i retry vengono inviati alla DLQ (`orders-dlq`) con header diagnostici e payload compattato. La pubblicazione è centralizzata in `DlqPublisher`.
-6. **Producer error handling**: i fallimenti del producer vengono intercetati da `KafkaProducerListenerConfig` e reindirizzati alla DLQ tramite `DlqPublisher`.
+5. **Dead Letter Queue**: gli ordini che superano i retry vengono inviati alla DLQ (`orders-dlq`) direttamente dalla topologia, con header diagnostici e payload compattato. Finiscono in DLQ anche gli ordini senza `orderId` (non elaborabili: un retry non può risolverli); i record con valore nullo (tombstone) vengono ignorati.
+6. **Producer error handling**: i fallimenti del producer vengono intercettati da `KafkaProducerListenerConfig` e reindirizzati alla DLQ tramite `DlqPublisher`. Il record in DLQ ha lo stesso schema di quello scritto dalla topologia, perché entrambi lo costruiscono con `DlqService`.
 
 ---
 
@@ -51,7 +51,8 @@ Il flusso di elaborazione segue questi passaggi:
 
 ### Gestione Degli Errori e DLQ
 
-- **`DlqPublisher`**: unico punto di pubblicazione sulla DLQ. Compatta il payload (tronca i campi con `StringUtils.abbreviate` a 64 caratteri) per evitare rifiuti per dimensione. Aggiunge header diagnostici: `dlq-exception-class`, `dlq-exception-message`, `workerId`.
+- **`DlqService`**: unico punto in cui si costruisce un record per la DLQ (chiave = `orderId`, valore = `Order` compattato, header diagnostici). Lo usano sia la topologia sia `DlqPublisher`, quindi la DLQ ha un solo schema. Ogni campo è limitato in dimensione, altrimenti un messaggio scartato perché troppo grande verrebbe rifiutato anche dalla DLQ: `customerId` e `productId` sono troncati a 64 caratteri (`StringUtils.abbreviate`) e `dlq-exception-message` a 200. Header: `workerId` (`unknown` se assente), `dlq-exception-class`, `dlq-exception-message`. Il timestamp del record Kafka non è mai negativo (il valore originale resta nel payload).
+- **`DlqPublisher`**: pubblica sulla DLQ tramite `KafkaTemplate` i record costruiti da `DlqService`. Lo usa `KafkaProducerListenerConfig` per i fallimenti di invio sul topic degli ordini; la topologia scrive sulla DLQ direttamente con `.to(...)`.
 - **`KafkaProducerListenerConfig`**: ascolta gli errori del producer su `KafkaTemplate` e redirige gli ordini falliti alla DLQ. Filtra gli errori non relativi al topic `orders-topic` per evitare invii ricorsivi.
 - **Simulazione errori producer**: `OrderProducer` genera occasionalmente un payload di 10000 caratteri per simulare errori di dimensione del messaggio, configurabili tramite `load-generator.error-rate`.
 
@@ -75,7 +76,7 @@ Il flusso di elaborazione segue questi passaggi:
 | **Spring for Apache Kafka** | spring-boot-starter-kafka |
 | **Lombok** | Riduzione del boilerplate (`@Slf4j`) |
 | **Jackson** | Serializzazione/deserializzazione JSON (`JacksonJsonSerde`, `JsonSerializer`/`JsonDeserializer`) |
-| **Apache Commons Lang3** | Utilità (`StringUtils.abbreviate`, `ExceptionUtils.getStackTrace`) |
+| **Apache Commons Lang3** | Utilità (`StringUtils.abbreviate`) |
 | **Maven** | Build tool |
 
 ### Dipendenze principali
@@ -113,7 +114,8 @@ src/main/java/com/example/kafka/
 │   ├── OrderRoutingResult.java            # Record di routing (order + stato)
 │   └── OrderStreamTopology.java           # Definizione della topologia Streams
 ├── dlq/
-│   └── DlqPublisher.java                  # Pubblicazione centralizzata sulla DLQ
+│   ├── DlqService.java                    # Costruzione dei record DLQ (schema unico, campi limitati)
+│   └── DlqPublisher.java                  # Invio sulla DLQ via KafkaTemplate (errori del producer)
 ├── inspector/
 │   └── KafkaTopicInspector.java           # Utility standalone per ispezionare topic (read_committed)
 └── util/
@@ -123,8 +125,11 @@ src/main/java/com/example/kafka/
 ### Test
 
 ```
-src/test/java/com/example/kafka/stream/
-└── OrderStreamTopologyTest.java           # Test della topologia con TopologyTestDriver
+src/test/java/com/example/kafka/
+├── config/KafkaProducerListenerConfigTest.java   # Errori del producer → DLQ
+├── dlq/DlqServiceTest.java                       # Costruzione dei record DLQ
+├── dlq/DlqPublisherTest.java                     # Invio sulla DLQ
+└── stream/OrderStreamTopologyTest.java           # Test della topologia con TopologyTestDriver
 ```
 
 ---
@@ -225,12 +230,18 @@ mvn exec:java -Dexec.mainClass="com.example.kafka.inspector.KafkaTopicInspector"
 
 ## Test
 
-Il progetto include test per la topologia Kafka Streams utilizzando `TopologyTestDriver`:
+La topologia Kafka Streams è testata con `TopologyTestDriver` (`OrderStreamTopologyTest`); gli altri componenti con test unitari.
 
 | Test | Descrizione |
 |---|---|
-| `successfulOrderGoesToNotifications` | Verifica che un ordine elaborato correttamente venga indirizzato al topic `notifications-topic` |
-| `failedOrderGoesToRetryWithFailureMetadata` | Verifica che un ordine che fallisce venga inviato al topic `orders-retry` |
+| `successfulOrderGoesToNotifications` | Un ordine elaborato correttamente va su `notifications-topic` e non lascia stato |
+| `failedOrderGoesToRetryWithFailureMetadata` | Un ordine che fallisce viene inviato 3 volte a `orders-retry` |
+| `orderFailingEveryTimeIsRetriedThreeTimesThenSentToDlq...` | Dopo 3 retry l'ordine va in `orders-dlq` con chiave `orderId` e header diagnostici; lo state store viene svuotato |
+| `orderFailingOnceThenSucceedingClearsTheRetryState` | Un errore transitorio porta a una notifica, nessun messaggio in DLQ e contatore azzerato |
+| `recordWithNullValueIsIgnored` | Un tombstone non produce output e non ferma lo stream thread |
+| `orderWithoutOrderIdGoesStraightToDlq` | Un ordine senza `orderId` va direttamente in DLQ |
+| `DlqServiceTest` / `DlqPublisherTest` | Chiave, compattazione, troncamento dei messaggi, `workerId`, timestamp negativi |
+| `KafkaProducerListenerConfigTest` | Gli errori sul topic ordini vanno in DLQ; gli altri topic e la DLQ stessa no (niente ricorsione) |
 
 ```bash
 mvn test
