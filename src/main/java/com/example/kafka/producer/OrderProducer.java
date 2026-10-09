@@ -41,7 +41,7 @@ public class OrderProducer {
 
         ProducerRecord<String, Order> record = new ProducerRecord<>(
                 appProperties.getTopics().getOrders(),
-                order.productId(),
+                order.orderId(),
                 order
         );
         record.headers().add("workerId", String.valueOf(workerId).getBytes(StandardCharsets.UTF_8));

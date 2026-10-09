@@ -3,6 +3,7 @@ package com.example.kafka.stream;
 import java.util.Properties;
 
 import com.example.kafka.config.AppKafkaProperties;
+import com.example.kafka.dlq.DlqService;
 import com.example.kafka.model.Order;
 import org.apache.kafka.common.serialization.Serde;
 import org.apache.kafka.common.serialization.Serdes;
@@ -40,7 +41,8 @@ class OrderStreamTopologyTest {
 
         StreamsBuilder builder = new StreamsBuilder();
         OrderProcessor orderProcessor = new OrderProcessor(errorRate);
-        new OrderStreamTopology(props, orderProcessor).orderStream(builder, new Serdes.StringSerde(), orderSerde);
+        DlqService dlqService = new DlqService();
+        new OrderStreamTopology(props, orderProcessor, dlqService).orderStream(builder, new Serdes.StringSerde(), orderSerde);
 
         Properties config = new Properties();
         config.put(StreamsConfig.APPLICATION_ID_CONFIG, "topology-test");

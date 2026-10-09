@@ -1,15 +1,12 @@
 package com.example.kafka.config;
 
-import java.nio.charset.StandardCharsets;
-import java.util.Optional;
-
 import com.example.kafka.dlq.DlqPublisher;
+import com.example.kafka.dlq.DlqService;
 import com.example.kafka.model.Order;
 import jakarta.annotation.PostConstruct;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.kafka.clients.producer.ProducerRecord;
 import org.apache.kafka.clients.producer.RecordMetadata;
-import org.apache.kafka.common.header.Header;
 import org.jspecify.annotations.NonNull;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.kafka.core.KafkaTemplate;
@@ -21,13 +18,16 @@ public class KafkaProducerListenerConfig {
 
     private final KafkaTemplate<String, Object> kafkaTemplate;
     private final DlqPublisher dlqPublisher;
+    private final DlqService dlqService;
     private final AppKafkaProperties appProperties;
 
     public KafkaProducerListenerConfig(KafkaTemplate<String, Object> kafkaTemplate,
                                        DlqPublisher dlqPublisher,
+                                       DlqService dlqService,
                                        AppKafkaProperties appProperties) {
         this.kafkaTemplate = kafkaTemplate;
         this.dlqPublisher = dlqPublisher;
+        this.dlqService = dlqService;
         this.appProperties = appProperties;
     }
 
@@ -44,11 +44,7 @@ public class KafkaProducerListenerConfig {
                 String topic = producerRecord.topic();
 
                 // Read workerId from headers if present
-                Header workerHeader = producerRecord.headers().lastHeader("workerId");
-                String workerId = Optional.ofNullable(workerHeader)
-                        .map(Header::value)
-                        .map(value -> new String(value, StandardCharsets.UTF_8))
-                        .orElse("unknown");
+                String workerId = dlqService.getWorkerId(producerRecord.headers());
 
                 // Altri topic (notifications, DLQ, ...): il chiamante gestisce già l'errore.
                 // In particolare un fallimento sulla DLQ non deve generare un nuovo invio in DLQ.
@@ -62,7 +58,7 @@ public class KafkaProducerListenerConfig {
                 log.error("[WorkerId {}] Send failed on topic {}. Redirecting to {}. orderId={}, productId={}. Error: {}",
                         workerId, topic, dlqTopic, order.orderId(), order.productId(), exception.getMessage());
 
-                dlqPublisher.publish(producerRecord.key(), order, workerId, null);
+                dlqPublisher.publish(order, workerId, exception);
             }
         });
     }

@@ -51,7 +51,7 @@ Il flusso di elaborazione segue questi passaggi:
 
 ### Gestione Degli Errori e DLQ
 
-- **`DlqPublisher`**: unico punto di pubblicazione sulla DLQ. Compatta il payload (tronca i campi con `StringUtils.abbreviate` a 64 caratteri) per evitare rifiuti per dimensione. Aggiunge header diagnostici: `dlq-exception-class`, `dlq-exception-message`, `dlq-exception-stacktrace`, `workerId`.
+- **`DlqPublisher`**: unico punto di pubblicazione sulla DLQ. Compatta il payload (tronca i campi con `StringUtils.abbreviate` a 64 caratteri) per evitare rifiuti per dimensione. Aggiunge header diagnostici: `dlq-exception-class`, `dlq-exception-message`, `workerId`.
 - **`KafkaProducerListenerConfig`**: ascolta gli errori del producer su `KafkaTemplate` e redirige gli ordini falliti alla DLQ. Filtra gli errori non relativi al topic `orders-topic` per evitare invii ricorsivi.
 - **Simulazione errori producer**: `OrderProducer` genera occasionalmente un payload di 10000 caratteri per simulare errori di dimensione del messaggio, configurabili tramite `load-generator.error-rate`.
 

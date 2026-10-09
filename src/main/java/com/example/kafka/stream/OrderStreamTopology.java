@@ -1,6 +1,7 @@
 package com.example.kafka.stream;
 
 import com.example.kafka.config.AppKafkaProperties;
+import com.example.kafka.dlq.DlqService;
 import com.example.kafka.model.Order;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.kafka.common.serialization.Serde;
@@ -21,10 +22,12 @@ public class OrderStreamTopology {
 
     private final AppKafkaProperties properties;
     private final OrderProcessor orderProcessor;
+    private final DlqService dlqService;
 
-    public OrderStreamTopology(AppKafkaProperties properties, OrderProcessor orderProcessor) {
+    public OrderStreamTopology(AppKafkaProperties properties, OrderProcessor orderProcessor, DlqService dlqService) {
         this.properties = properties;
         this.orderProcessor = orderProcessor;
+        this.dlqService = dlqService;
     }
 
     @Bean
@@ -54,7 +57,7 @@ public class OrderStreamTopology {
         // 3. Uniamo i flussi ed eseguiamo il processamento custom.
         // NOTA: Il processor ora restituisce un OrderRoutingResult (contenente l'Order e il target)
         KStream<String, OrderRoutingResult> processedStream = mainStream.merge(retryStream)
-                .process(() -> new EnterpriseOrderProcessor(orderProcessor), "order-retry-counts");
+                .process(() -> new EnterpriseOrderProcessor(orderProcessor, dlqService), "order-retry-counts");
 
         // 4. Eseguiamo il routing dell'output usando i filtri nativi della DSL (molto più pulito di addSink)
 
@@ -70,7 +73,7 @@ public class OrderStreamTopology {
                 .mapValues(OrderRoutingResult::order)
                 .to(properties.getRetryTopics().getOrders(), Produced.with(stringSerde, orderSerde));
 
-        // Flusso Errori Infiniti -> DLQ
+        // Flusso Errori -> DLQ
         processedStream
                 .filter((k, v) -> v.status() == OrderRoutingResult.RoutingStatus.DLQ)
                 .mapValues(OrderRoutingResult::order)
